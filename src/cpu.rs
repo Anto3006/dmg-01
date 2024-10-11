@@ -3,8 +3,29 @@ mod registers;
 
 use memory::Memory;
 use registers::Registers;
+use std::env;
+use std::fs;
 
-#[derive(Clone, Copy)]
+pub fn read_instructions() {
+    let mut args = env::args();
+    if args.len() > 1 {
+        args.next();
+        let file_name = args.next().unwrap();
+        let bytes = fs::read(file_name).unwrap();
+        for byte in bytes {
+            let instruction = Instruction::from_byte(byte);
+            match instruction {
+                Some(instruction) => println!("{:?}", instruction),
+                None => {
+                    println!("Could not read instruction {byte:#x} {byte:#b}");
+                    break;
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 enum ArithmeticTarget8 {
     A,
     B,
@@ -15,9 +36,10 @@ enum ArithmeticTarget8 {
     L,
     Value(u8),
     HL,
+    Address(ArithmeticTarget16),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum ArithmeticTarget16 {
     BC,
     DE,
@@ -26,8 +48,9 @@ enum ArithmeticTarget16 {
     Value(u16),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Instruction {
+    NOP,
     ADD(ArithmeticTarget8),
     ADC(ArithmeticTarget8),
     ADD16(ArithmeticTarget16),
@@ -49,6 +72,23 @@ enum Instruction {
     JUMP(u16),
 }
 
+impl Instruction {
+    fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            0x00 => Some(Self::NOP),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum JumpCondition {
+    NotZero,
+    Zero,
+    NotCarry,
+    Carry,
+}
+
 struct CPU {
     registers: Registers,
     memory: Memory,
@@ -67,6 +107,20 @@ impl CPU {
             Instruction::ADDSP(value) => self.add_stack_pointer(value),
             _ => (),
         }
+    }
+
+    fn fetch_byte(&self) -> u8 {
+        self.memory.get_memory_value(self.program_counter)
+    }
+
+    fn load(&mut self, target: ArithmeticTarget8, source: ArithmeticTarget8) {
+        let value = self.get_target_value(source);
+        self.change_target(target, value);
+    }
+
+    fn load_16(&mut self, target: ArithmeticTarget16, source: ArithmeticTarget16) {
+        let value = self.get_target_value_16(source);
+        self.change_target_16(target, value);
     }
 
     fn add(&mut self, target: ArithmeticTarget8, use_carry: bool) {
@@ -240,6 +294,70 @@ impl CPU {
         self.program_counter = address;
     }
 
+    fn relative_jump(&mut self, offset: i8) {
+        if offset > 0 {
+            self.program_counter += offset as u16;
+        } else {
+            self.program_counter -= -offset as u16;
+        }
+    }
+
+    fn jump_if_condition(&mut self, condition: JumpCondition, address: u16) {
+        match condition {
+            JumpCondition::NotZero => {
+                if !self.registers.f.zero {
+                    self.program_counter = address
+                }
+            }
+            JumpCondition::Zero => {
+                if self.registers.f.zero {
+                    self.program_counter = address
+                }
+            }
+            JumpCondition::NotCarry => {
+                if !self.registers.f.carry {
+                    self.program_counter = address
+                }
+            }
+            JumpCondition::Carry => {
+                if self.registers.f.carry {
+                    self.program_counter = address
+                }
+            }
+        }
+    }
+
+    fn relative_jump_if_condition(&mut self, condition: JumpCondition, offset: i8) {
+        let new_address: u16;
+        if offset > 0 {
+            new_address = self.program_counter + (offset as u16);
+        } else {
+            new_address = self.program_counter - (-offset as u16);
+        }
+        match condition {
+            JumpCondition::NotZero => {
+                if !self.registers.f.zero {
+                    self.program_counter = new_address
+                }
+            }
+            JumpCondition::Zero => {
+                if self.registers.f.zero {
+                    self.program_counter = new_address
+                }
+            }
+            JumpCondition::NotCarry => {
+                if !self.registers.f.carry {
+                    self.program_counter = new_address
+                }
+            }
+            JumpCondition::Carry => {
+                if self.registers.f.carry {
+                    self.program_counter = new_address;
+                }
+            }
+        }
+    }
+
     fn change_target(&mut self, target: ArithmeticTarget8, new_value: u8) {
         match target {
             ArithmeticTarget8::A => self.registers.a = new_value,
@@ -253,6 +371,10 @@ impl CPU {
                 .memory
                 .set_memory_value(self.registers.get_hl(), new_value),
             ArithmeticTarget8::Value(_) => (),
+            ArithmeticTarget8::Address(target) => {
+                let address = self.get_target_value_16(target);
+                self.memory.set_memory_value(address, new_value)
+            }
         }
     }
 
@@ -277,6 +399,10 @@ impl CPU {
             ArithmeticTarget8::L => self.registers.l,
             ArithmeticTarget8::Value(value) => value,
             ArithmeticTarget8::HL => self.memory.get_memory_value(self.registers.get_hl()),
+            ArithmeticTarget8::Address(target) => {
+                let address = self.get_target_value_16(target);
+                self.memory.get_memory_value(address)
+            }
         }
     }
 
