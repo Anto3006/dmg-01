@@ -3,7 +3,8 @@ const SUB_FLAG_BIT: u8 = 6;
 const HALF_CARRY_FLAG_BIT: u8 = 5;
 const CARRY_FLAG_BIT: u8 = 4;
 
-enum Register8Bit {
+#[derive(Debug, Copy, Clone)]
+pub enum Register8Bit {
     A,
     B,
     C,
@@ -14,15 +15,46 @@ enum Register8Bit {
     L,
 }
 
-enum Register16Bit {
+impl TryFrom<u8> for Register8Bit {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::B),
+            1 => Ok(Self::C),
+            2 => Ok(Self::D),
+            3 => Ok(Self::E),
+            4 => Ok(Self::H),
+            5 => Ok(Self::L),
+            7 => Ok(Self::A),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum Register16Bit {
     AF,
     BC,
     DE,
     HL,
+    SP,
+}
+
+impl TryFrom<u8> for Register16Bit {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::BC),
+            1 => Ok(Self::DE),
+            2 => Ok(Self::HL),
+            3 => Ok(Self::SP),
+            _ => Err(()),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
-struct Registers {
+pub struct Registers {
     a: u8,
     b: u8,
     c: u8,
@@ -73,7 +105,7 @@ impl From<FlagsRegister> for u8 {
 }
 
 impl Registers {
-    fn get_8_bit_register(&self, register: Register8Bit) -> u8 {
+    pub fn get_8_bit_register(&self, register: Register8Bit) -> u8 {
         match register {
             Register8Bit::A => self.a,
             Register8Bit::B => self.b,
@@ -86,19 +118,20 @@ impl Registers {
         }
     }
 
-    fn get_16_bit_register(&self, register: Register16Bit) -> u16 {
+    pub fn get_16_bit_register(&self, register: Register16Bit) -> u16 {
         let (upper_register, lower_register) = match register {
             Register16Bit::AF => (Register8Bit::A, Register8Bit::F),
             Register16Bit::BC => (Register8Bit::B, Register8Bit::C),
             Register16Bit::DE => (Register8Bit::D, Register8Bit::E),
             Register16Bit::HL => (Register8Bit::H, Register8Bit::L),
+            Register16Bit::SP => return self.stack_pointer,
         };
         let upper_half = self.get_8_bit_register(upper_register);
         let lower_half = self.get_8_bit_register(lower_register);
         (upper_half as u16) << 8 | (lower_half as u16)
     }
 
-    fn set_8_bit_register(&mut self, register: Register8Bit, new_value: u8) {
+    pub fn set_8_bit_register(&mut self, register: Register8Bit, new_value: u8) {
         match register {
             Register8Bit::A => self.a = new_value,
             Register8Bit::B => self.b = new_value,
@@ -111,12 +144,16 @@ impl Registers {
         }
     }
 
-    fn set_16_bit_register(&mut self, register: Register16Bit, new_value: u16) {
+    pub fn set_16_bit_register(&mut self, register: Register16Bit, new_value: u16) {
         let (upper_register, lower_register) = match register {
             Register16Bit::AF => (Register8Bit::A, Register8Bit::F),
             Register16Bit::BC => (Register8Bit::B, Register8Bit::C),
             Register16Bit::DE => (Register8Bit::D, Register8Bit::E),
             Register16Bit::HL => (Register8Bit::H, Register8Bit::L),
+            Register16Bit::SP => {
+                self.stack_pointer = new_value;
+                return;
+            }
         };
         let upper_half = ((new_value & 0xFF00) >> 8) as u8;
         let lower_half = (new_value & 0x00FF) as u8;
@@ -124,11 +161,21 @@ impl Registers {
         self.set_8_bit_register(lower_register, lower_half);
     }
 
-    fn get_stack_pointer(&self) -> u16 {
-        self.stack_pointer
+    pub fn increase_16_bit_register(&mut self, register: Register16Bit) {
+        let value = self.get_16_bit_register(register);
+        self.set_16_bit_register(register, value.wrapping_add(1));
     }
 
-    fn get_program_counter(&self) -> u16 {
+    pub fn decrease_16_bit_register(&mut self, register: Register16Bit) {
+        let value = self.get_16_bit_register(register);
+        self.set_16_bit_register(register, value.wrapping_sub(1));
+    }
+
+    pub fn get_program_counter(&self) -> u16 {
         self.program_counter
+    }
+
+    pub fn increase_program_counter(&mut self) {
+        self.program_counter = self.program_counter.wrapping_add(1);
     }
 }
