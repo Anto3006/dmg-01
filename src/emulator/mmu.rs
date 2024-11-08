@@ -58,7 +58,7 @@ impl MemorySection {
     }
 }
 
-struct MMU {
+pub struct MMU {
     fixed_rom_bank: [u8; ROM_BANK_SIZE],
     switchable_rom_bank: [u8; ROM_BANK_SIZE],
     video_ram: [u8; VRAM_SIZE],
@@ -73,7 +73,7 @@ struct MMU {
 }
 
 impl MMU {
-    fn read_byte(&self, address: u16) -> u8 {
+    pub fn read_byte(&self, address: u16) -> u8 {
         let memory_section = MemorySection::from(address);
         let start_address = memory_section.get_beginning_address();
         let address_in_section = (address - start_address) as usize;
@@ -92,7 +92,7 @@ impl MMU {
         }
     }
 
-    fn write_byte(&mut self, address: u16, value: u8) {
+    pub fn write_byte(&mut self, address: u16, value: u8) {
         let memory_section = MemorySection::from(address);
         let start_address = memory_section.get_beginning_address();
         let address_in_section = (address - start_address) as usize;
