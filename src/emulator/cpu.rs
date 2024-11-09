@@ -28,8 +28,9 @@ impl TryFrom<u8> for MemoryAddress {
 enum Instruction {
     NOP,
     Load16Bit(Register16Bit, u16),
-    LoadToMemory(MemoryAddress),   //Loads from register A
+    StoreInMemory(MemoryAddress),  //Stores from register A
     LoadFromMemory(MemoryAddress), // Load to register A
+    StoreStackPointer(u16),
     Unknown(u8),
 }
 
@@ -38,11 +39,14 @@ impl Instruction {
         match self {
             Self::NOP => println!("No operation instruction"),
             Self::Load16Bit(register, value) => println!("Loading {register:?} with value {value}"),
-            Self::LoadToMemory(memory_address) => {
+            Self::StoreInMemory(memory_address) => {
                 println!("Loading to memory address {memory_address:?}")
             }
             Self::LoadFromMemory(memory_address) => {
                 println!("Loading from memory address {memory_address:?}")
+            }
+            Self::StoreStackPointer(address) => {
+                println!("Stores stack pointer at address {address:#x}")
             }
             Self::Unknown(opcode) => println!("Unknown opcode: {opcode}"),
         }
@@ -74,11 +78,15 @@ impl CPU {
             }
             (0..=3, 0b10) => {
                 let memory_address = MemoryAddress::try_from(upper_nibble).unwrap();
-                Instruction::LoadToMemory(memory_address)
+                Instruction::StoreInMemory(memory_address)
             }
             (0..=3, 0b1010) => {
                 let memory_address = MemoryAddress::try_from(upper_nibble).unwrap();
                 Instruction::LoadFromMemory(memory_address)
+            }
+            (0, 0b1000) => {
+                let address = (self.fetch_byte() as u16) | ((self.fetch_byte() as u16) << 8);
+                Instruction::StoreStackPointer(address)
             }
             _ => Instruction::Unknown(opcode),
         }
@@ -90,7 +98,7 @@ impl CPU {
             Instruction::Load16Bit(register, value) => {
                 self.registers.set_16_bit_register(register, value)
             }
-            Instruction::LoadToMemory(memory_address) => {
+            Instruction::StoreInMemory(memory_address) => {
                 let value = self.registers.get_8_bit_register(Register8Bit::A);
                 let address = self.from_memory_address(memory_address);
                 self.mmu.write_byte(address, value);
@@ -99,6 +107,13 @@ impl CPU {
                 let address = self.from_memory_address(memory_address);
                 let value = self.mmu.read_byte(address);
                 self.registers.set_8_bit_register(Register8Bit::A, value);
+            }
+            Instruction::StoreStackPointer(address) => {
+                let sp = self.registers.get_16_bit_register(Register16Bit::SP);
+                let upper_half = (sp >> 8) as u8;
+                let lower_half = (sp & 0x00FF) as u8;
+                self.mmu.write_byte(address, lower_half);
+                self.mmu.write_byte(address.wrapping_add(1), upper_half);
             }
             Instruction::Unknown(_) => (),
         }
