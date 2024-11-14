@@ -1,7 +1,7 @@
 mod registers;
 
 use super::mmu::MMU;
-use registers::{Register16Bit, Register8Bit, Registers};
+use registers::{Register, Register16Bit, Register8Bit, Registers};
 
 #[derive(Debug, Clone, Copy)]
 enum MemoryAddress {
@@ -31,6 +31,9 @@ enum Instruction {
     StoreInMemory(MemoryAddress),  //Stores from register A
     LoadFromMemory(MemoryAddress), // Load to register A
     StoreStackPointer(u16),
+    Increase(Register),
+    Decrease(Register),
+    Add16(Register16Bit), // Adds 16 bit register to HL register
     Unknown(u8),
 }
 
@@ -47,6 +50,15 @@ impl Instruction {
             }
             Self::StoreStackPointer(address) => {
                 println!("Stores stack pointer at address {address:#x}")
+            }
+            Self::Increase(register) => {
+                println!("Increasing register {register:?}");
+            }
+            Self::Decrease(register) => {
+                println!("Decreasing register {register:?}");
+            }
+            Self::Add16(register) => {
+                println!("Adding {register:?} to HL");
             }
             Self::Unknown(opcode) => println!("Unknown opcode: {opcode}"),
         }
@@ -88,6 +100,18 @@ impl CPU {
                 let address = (self.fetch_byte() as u16) | ((self.fetch_byte() as u16) << 8);
                 Instruction::StoreStackPointer(address)
             }
+            (0..4, 0b0011) => {
+                let register = Register16Bit::try_from(upper_nibble).unwrap();
+                Instruction::Increase(Register::Reg16(register))
+            }
+            (0..4, 0b1011) => {
+                let register = Register16Bit::try_from(upper_nibble).unwrap();
+                Instruction::Decrease(Register::Reg16(register))
+            }
+            (0..4, 0b1001) => {
+                let register = Register16Bit::try_from(upper_nibble).unwrap();
+                Instruction::Add16(register)
+            }
             _ => Instruction::Unknown(opcode),
         }
     }
@@ -115,6 +139,9 @@ impl CPU {
                 self.mmu.write_byte(address, lower_half);
                 self.mmu.write_byte(address.wrapping_add(1), upper_half);
             }
+            Instruction::Increase(register) => self.registers.increase_register(register),
+            Instruction::Decrease(register) => self.registers.decrease_register(register),
+            Instruction::Add16(register) => {}
             Instruction::Unknown(_) => (),
         }
     }
@@ -125,12 +152,14 @@ impl CPU {
             MemoryAddress::DE => self.registers.get_16_bit_register(Register16Bit::DE),
             MemoryAddress::HLD => {
                 let value = self.registers.get_16_bit_register(Register16Bit::HL);
-                self.registers.decrease_16_bit_register(Register16Bit::HL);
+                self.registers
+                    .decrease_register(Register::Reg16(Register16Bit::HL));
                 value
             }
             MemoryAddress::HLI => {
                 let value = self.registers.get_16_bit_register(Register16Bit::HL);
-                self.registers.increase_16_bit_register(Register16Bit::HL);
+                self.registers
+                    .increase_register(Register::Reg16(Register16Bit::HL));
                 value
             }
         }

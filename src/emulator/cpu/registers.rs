@@ -54,6 +54,24 @@ impl TryFrom<u8> for Register16Bit {
 }
 
 #[derive(Debug, Copy, Clone)]
+pub enum Register {
+    Reg8(Register8Bit),
+    Reg16(Register16Bit),
+}
+
+impl From<Register8Bit> for Register {
+    fn from(value: Register8Bit) -> Self {
+        Self::Reg8(value)
+    }
+}
+
+impl From<Register16Bit> for Register {
+    fn from(value: Register16Bit) -> Self {
+        Self::Reg16(value)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
 pub struct Registers {
     a: u8,
     b: u8,
@@ -161,14 +179,38 @@ impl Registers {
         self.set_8_bit_register(lower_register, lower_half);
     }
 
-    pub fn increase_16_bit_register(&mut self, register: Register16Bit) {
+    pub fn increase_register(&mut self, register: Register) {
+        match register {
+            Register::Reg8(register) => (),
+            Register::Reg16(register) => self.increase_16_bit_register(register),
+        }
+    }
+
+    pub fn decrease_register(&mut self, register: Register) {
+        match register {
+            Register::Reg8(register) => self.decrease_8_bit_register(register),
+            Register::Reg16(register) => self.decrease_16_bit_register(register),
+        }
+    }
+
+    fn increase_16_bit_register(&mut self, register: Register16Bit) {
         let value = self.get_16_bit_register(register);
         self.set_16_bit_register(register, value.wrapping_add(1));
     }
 
-    pub fn decrease_16_bit_register(&mut self, register: Register16Bit) {
+    fn decrease_16_bit_register(&mut self, register: Register16Bit) {
         let value = self.get_16_bit_register(register);
         self.set_16_bit_register(register, value.wrapping_sub(1));
+    }
+
+    fn increase_8_bit_register(&mut self, register: Register8Bit) {
+        let value = self.get_8_bit_register(register);
+        self.set_8_bit_register(register, value.wrapping_add(1));
+    }
+
+    fn decrease_8_bit_register(&mut self, register: Register8Bit) {
+        let value = self.get_8_bit_register(register);
+        self.set_8_bit_register(register, value.wrapping_sub(1));
     }
 
     pub fn get_program_counter(&self) -> u16 {
