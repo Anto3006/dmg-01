@@ -1,7 +1,8 @@
 mod registers;
 
 use super::mmu::MMU;
-use registers::{Register, Register16Bit, Register8Bit, Registers};
+use register_types::{Register, Register16Bit, Register8Bit};
+use registers::{register_types, FlagsResults, Registers};
 
 #[derive(Debug, Clone, Copy)]
 enum MemoryAddress {
@@ -139,7 +140,10 @@ impl CPU {
                 self.mmu.write_byte(address, lower_half);
                 self.mmu.write_byte(address.wrapping_add(1), upper_half);
             }
-            Instruction::Increase(register) => self.registers.increase_register(register),
+            Instruction::Increase(register) => {
+                let flag_results = self.registers.increase_register(register);
+                self.registers.set_flags(flag_results);
+            }
             Instruction::Decrease(register) => self.registers.decrease_register(register),
             Instruction::Add16(register) => {}
             Instruction::Unknown(_) => (),
@@ -163,5 +167,25 @@ impl CPU {
                 value
             }
         }
+    }
+
+    fn add_register_16(&mut self, source: Register16Bit, dest: Register16Bit) {
+        let source_value = self.registers.get_16_bit_register(source);
+        let dest_value = self.registers.get_16_bit_register(dest);
+        let (new_value, did_overflow) = dest_value.overflowing_add(source_value);
+        let did_half_carry = CPU::did_half_carry_add(dest_value, source_value);
+        let zero = Some(false);
+        let sub = None;
+        let half_carry = Some(did_half_carry);
+        let carry = Some(did_overflow);
+        let flag_results = FlagsResults::new(zero, sub, half_carry, carry);
+        self.registers.set_flags(flag_results);
+    }
+
+    fn did_half_carry_add(value_1: u16, value_2: u16) -> bool {
+        let half_carry_mask = 0x0FFF;
+        let did_half_carry =
+            (value_1 & half_carry_mask) + (value_2 & half_carry_mask) > half_carry_mask;
+        did_half_carry
     }
 }

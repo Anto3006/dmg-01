@@ -1,75 +1,10 @@
+pub mod register_types;
+use register_types::{Register, Register16Bit, Register8Bit};
+
 const ZERO_FLAG_BIT: u8 = 7;
 const SUB_FLAG_BIT: u8 = 6;
 const HALF_CARRY_FLAG_BIT: u8 = 5;
 const CARRY_FLAG_BIT: u8 = 4;
-
-#[derive(Debug, Copy, Clone)]
-pub enum Register8Bit {
-    A,
-    B,
-    C,
-    D,
-    E,
-    F,
-    H,
-    L,
-}
-
-impl TryFrom<u8> for Register8Bit {
-    type Error = ();
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::B),
-            1 => Ok(Self::C),
-            2 => Ok(Self::D),
-            3 => Ok(Self::E),
-            4 => Ok(Self::H),
-            5 => Ok(Self::L),
-            7 => Ok(Self::A),
-            _ => Err(()),
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum Register16Bit {
-    AF,
-    BC,
-    DE,
-    HL,
-    SP,
-}
-
-impl TryFrom<u8> for Register16Bit {
-    type Error = ();
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::BC),
-            1 => Ok(Self::DE),
-            2 => Ok(Self::HL),
-            3 => Ok(Self::SP),
-            _ => Err(()),
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum Register {
-    Reg8(Register8Bit),
-    Reg16(Register16Bit),
-}
-
-impl From<Register8Bit> for Register {
-    fn from(value: Register8Bit) -> Self {
-        Self::Reg8(value)
-    }
-}
-
-impl From<Register16Bit> for Register {
-    fn from(value: Register16Bit) -> Self {
-        Self::Reg16(value)
-    }
-}
 
 #[derive(Debug, Copy, Clone)]
 pub struct Registers {
@@ -122,7 +57,62 @@ impl From<FlagsRegister> for u8 {
     }
 }
 
+impl FlagsRegister {
+    fn set_flags(&mut self, flag_results: FlagsResults) {
+        if let Some(zero_flag) = flag_results.zero {
+            self.zero = zero_flag;
+        }
+        if let Some(sub_flag) = flag_results.substraction {
+            self.substraction = sub_flag;
+        }
+        if let Some(half_carry_flag) = flag_results.half_carry {
+            self.half_carry = half_carry_flag;
+        }
+        if let Some(carry_flag) = flag_results.carry {
+            self.carry = carry_flag;
+        }
+    }
+}
+
+pub struct FlagsResults {
+    zero: Option<bool>,
+    substraction: Option<bool>,
+    half_carry: Option<bool>,
+    carry: Option<bool>,
+}
+
+impl Default for FlagsResults {
+    fn default() -> Self {
+        Self {
+            zero: None,
+            substraction: None,
+            half_carry: None,
+            carry: None,
+        }
+    }
+}
+
+impl FlagsResults {
+    pub fn new(
+        zero: Option<bool>,
+        substraction: Option<bool>,
+        half_carry: Option<bool>,
+        carry: Option<bool>,
+    ) -> Self {
+        Self {
+            zero,
+            substraction,
+            half_carry,
+            carry,
+        }
+    }
+}
+
 impl Registers {
+    pub fn set_flags(&mut self, flag_results: FlagsResults) {
+        self.f.set_flags(flag_results);
+    }
+
     pub fn get_8_bit_register(&self, register: Register8Bit) -> u8 {
         match register {
             Register8Bit::A => self.a,
@@ -188,7 +178,7 @@ impl Registers {
 
     pub fn decrease_register(&mut self, register: Register) {
         match register {
-            Register::Reg8(register) => self.decrease_8_bit_register(register),
+            Register::Reg8(register) => (),
             Register::Reg16(register) => self.decrease_16_bit_register(register),
         }
     }
