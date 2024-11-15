@@ -40,6 +40,10 @@ enum Instruction {
     RRCA,
     RLA,
     RRA,
+    DAA,
+    CPL,
+    SCF,
+    CCF,
     Unknown(u8),
 }
 
@@ -71,6 +75,10 @@ impl Instruction {
             Self::RRCA => println!("Rotating register A to the right setting carry (RRCA)"),
             Self::RLA => println!("Rotating register A to the left through carry (RCA)"),
             Self::RRA => println!("Rotating register A to the right through carry (RCA)"),
+            Self::DAA => println!("Decimal adjust accumulator"),
+            Self::CPL => println!("Complement accumulator"),
+            Self::SCF => println!("Set carry flag"),
+            Self::CCF => println!("Complement carry flag"),
             Self::Unknown(opcode) => println!("Unknown opcode: {opcode}"),
         }
     }
@@ -141,6 +149,10 @@ impl CPU {
             (0, 0b1111) => Some(Instruction::RRCA),
             (0b0001, 0b0111) => Some(Instruction::RLA),
             (0b0001, 0b1111) => Some(Instruction::RRA),
+            (0b0010, 0b0111) => Some(Instruction::DAA),
+            (0b0010, 0b1111) => Some(Instruction::CPL),
+            (0b0011, 0b0111) => Some(Instruction::SCF),
+            (0b0011, 0b1111) => Some(Instruction::CCF),
             _ => None,
         }
     }
@@ -182,6 +194,10 @@ impl CPU {
             Instruction::RRCA => self.rotate_right_set_carry(Register8Bit::A),
             Instruction::RLA => self.rotate_left_set_carry(Register8Bit::A),
             Instruction::RRA => self.rotate_right_set_carry(Register8Bit::A),
+            Instruction::DAA => self.decimal_adjust_accumulator(),
+            Instruction::CPL => self.complement_accumulator(),
+            Instruction::SCF => self.set_carry_flag(),
+            Instruction::CCF => self.complement_carry_flag(),
             Instruction::Unknown(_) => FlagsResults::default(),
         };
         self.registers.set_flags(flags_results);
@@ -386,6 +402,61 @@ impl CPU {
         } else {
             zero = Some(new_value == 0);
         }
+        FlagsResults::new(zero, substraction, half_carry, carry)
+    }
+
+    fn decimal_adjust_accumulator(&mut self) -> FlagsResults {
+        let value = self.get_register_8_value(Register8Bit::A);
+        let sub_flag = self.registers.get_sub_flag();
+        let half_carry_flag = self.registers.get_half_carry_flag();
+        let carry_flag = self.registers.get_carry_flag();
+
+        let mut correction = 0;
+        if half_carry_flag || (!sub_flag && (value & 0x0F) > 9) {
+            correction |= 0x6;
+        }
+        if carry_flag || (!sub_flag && value > 0x99) {
+            correction |= 0x60;
+        }
+
+        let new_value = if sub_flag {
+            value.wrapping_sub(correction)
+        } else {
+            value.wrapping_add(correction)
+        };
+
+        let zero = Some(new_value == 0);
+        let new_carry_flag = Some(value > 0x99);
+        let new_half_carry_flag = Some(false);
+        let new_sub_flag = None;
+
+        FlagsResults::new(zero, new_sub_flag, new_half_carry_flag, new_carry_flag)
+    }
+
+    fn complement_accumulator(&mut self) -> FlagsResults {
+        let value = self.get_register_8_value(Register8Bit::A);
+        let new_value = !value;
+        self.set_register_8_value(Register8Bit::A, new_value);
+        let zero = None;
+        let substraction = Some(true);
+        let half_carry = Some(true);
+        let carry = None;
+        FlagsResults::new(zero, substraction, half_carry, carry)
+    }
+
+    fn set_carry_flag(&mut self) -> FlagsResults {
+        let zero = None;
+        let substraction = Some(false);
+        let half_carry = Some(false);
+        let carry = Some(true);
+        FlagsResults::new(zero, substraction, half_carry, carry)
+    }
+
+    fn complement_carry_flag(&mut self) -> FlagsResults {
+        let zero = None;
+        let substraction = Some(false);
+        let half_carry = Some(false);
+        let carry = Some(!self.registers.get_carry_flag());
         FlagsResults::new(zero, substraction, half_carry, carry)
     }
 

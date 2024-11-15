@@ -182,4 +182,16 @@ impl Registers {
     pub fn get_carry_flag(&self) -> bool {
         self.f.carry
     }
+
+    pub fn get_sub_flag(&self) -> bool {
+        self.f.substraction
+    }
+
+    pub fn get_half_carry_flag(&self) -> bool {
+        self.f.half_carry
+    }
+
+    pub fn get_zero(&self) -> bool {
+        self.f.zero
+    }
 }
