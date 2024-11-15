@@ -8,6 +8,7 @@ pub enum Register8Bit {
     F,
     H,
     L,
+    Addr,
 }
 
 impl TryFrom<u8> for Register8Bit {
@@ -20,6 +21,7 @@ impl TryFrom<u8> for Register8Bit {
             3 => Ok(Self::E),
             4 => Ok(Self::H),
             5 => Ok(Self::L),
+            6 => Ok(Self::Addr),
             7 => Ok(Self::A),
             _ => Err(()),
         }

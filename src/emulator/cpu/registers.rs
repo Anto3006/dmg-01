@@ -1,5 +1,5 @@
 pub mod register_types;
-use register_types::{Register, Register16Bit, Register8Bit};
+use register_types::{Register16Bit, Register8Bit};
 
 const ZERO_FLAG_BIT: u8 = 7;
 const SUB_FLAG_BIT: u8 = 6;
@@ -123,6 +123,7 @@ impl Registers {
             Register8Bit::F => self.f.into(),
             Register8Bit::H => self.h,
             Register8Bit::L => self.l,
+            Register8Bit::Addr => 0,
         }
     }
 
@@ -149,6 +150,7 @@ impl Registers {
             Register8Bit::F => self.f = new_value.into(),
             Register8Bit::H => self.h = new_value,
             Register8Bit::L => self.l = new_value,
+            Register8Bit::Addr => (),
         }
     }
 
@@ -169,45 +171,15 @@ impl Registers {
         self.set_8_bit_register(lower_register, lower_half);
     }
 
-    pub fn increase_register(&mut self, register: Register) {
-        match register {
-            Register::Reg8(register) => (),
-            Register::Reg16(register) => self.increase_16_bit_register(register),
-        }
-    }
-
-    pub fn decrease_register(&mut self, register: Register) {
-        match register {
-            Register::Reg8(register) => (),
-            Register::Reg16(register) => self.decrease_16_bit_register(register),
-        }
-    }
-
-    fn increase_16_bit_register(&mut self, register: Register16Bit) {
-        let value = self.get_16_bit_register(register);
-        self.set_16_bit_register(register, value.wrapping_add(1));
-    }
-
-    fn decrease_16_bit_register(&mut self, register: Register16Bit) {
-        let value = self.get_16_bit_register(register);
-        self.set_16_bit_register(register, value.wrapping_sub(1));
-    }
-
-    fn increase_8_bit_register(&mut self, register: Register8Bit) {
-        let value = self.get_8_bit_register(register);
-        self.set_8_bit_register(register, value.wrapping_add(1));
-    }
-
-    fn decrease_8_bit_register(&mut self, register: Register8Bit) {
-        let value = self.get_8_bit_register(register);
-        self.set_8_bit_register(register, value.wrapping_sub(1));
-    }
-
     pub fn get_program_counter(&self) -> u16 {
         self.program_counter
     }
 
     pub fn increase_program_counter(&mut self) {
         self.program_counter = self.program_counter.wrapping_add(1);
+    }
+
+    pub fn get_carry_flag(&self) -> bool {
+        self.f.carry
     }
 }
