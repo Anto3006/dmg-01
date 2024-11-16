@@ -1,5 +1,7 @@
 mod registers;
 
+use std::num::NonZero;
+
 use super::mmu::MMU;
 use register_types::{Register, Register16Bit, Register8Bit};
 use registers::{register_types, FlagsResults, Registers};
@@ -26,6 +28,27 @@ impl TryFrom<u8> for MemoryAddress {
 }
 
 #[derive(Debug, Clone, Copy)]
+enum Condition {
+    Zero,
+    NonZero,
+    Carry,
+    NonCarry,
+}
+
+impl TryFrom<u8> for Condition {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::NonZero),
+            1 => Ok(Self::Zero),
+            2 => Ok(Self::NonCarry),
+            3 => Ok(Self::Carry),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 enum Instruction {
     NOP,
     Load16Bit(Register16Bit, u16),
@@ -44,6 +67,8 @@ enum Instruction {
     CPL,
     SCF,
     CCF,
+    RelativeJump(i8),
+    CondRelativeJump(Condition, i8),
     Unknown(u8),
 }
 
@@ -79,6 +104,10 @@ impl Instruction {
             Self::CPL => println!("Complement accumulator"),
             Self::SCF => println!("Set carry flag"),
             Self::CCF => println!("Complement carry flag"),
+            Self::RelativeJump(offset) => println!("Relative jump with offset {offset}"),
+            Self::CondRelativeJump(condition, offset) => {
+                println!("Conditional relative jump with condition {condition:?} offset {offset}")
+            }
             Self::Unknown(opcode) => println!("Unknown opcode: {opcode}"),
         }
     }
@@ -153,6 +182,10 @@ impl CPU {
             (0b0010, 0b1111) => Some(Instruction::CPL),
             (0b0011, 0b0111) => Some(Instruction::SCF),
             (0b0011, 0b1111) => Some(Instruction::CCF),
+            (0b0001, 0b1000) => {
+                let offset: i8 = self.fetch_byte() as i8;
+                Some(Instruction::RelativeJump(offset))
+            }
             _ => None,
         }
     }
@@ -174,6 +207,12 @@ impl CPU {
                 let register = Register8Bit::try_from(middle_octal).unwrap();
                 let value = self.fetch_byte();
                 Some(Instruction::Load8Bit(register, value))
+            }
+            (0, 4..8, 0) => {
+                let condition_code = middle_octal & 0b11;
+                let condition = Condition::try_from(condition_code).unwrap();
+                let offset: i8 = self.fetch_byte() as i8;
+                Some(Instruction::CondRelativeJump(condition, offset))
             }
             _ => None,
         }
@@ -198,6 +237,10 @@ impl CPU {
             Instruction::CPL => self.complement_accumulator(),
             Instruction::SCF => self.set_carry_flag(),
             Instruction::CCF => self.complement_carry_flag(),
+            Instruction::RelativeJump(offset) => self.relative_jump(offset),
+            Instruction::CondRelativeJump(condition, offset) => {
+                self.conditional_relative_jump(condition, offset)
+            }
             Instruction::Unknown(_) => FlagsResults::default(),
         };
         self.registers.set_flags(flags_results);
@@ -458,6 +501,33 @@ impl CPU {
         let half_carry = Some(false);
         let carry = Some(!self.registers.get_carry_flag());
         FlagsResults::new(zero, substraction, half_carry, carry)
+    }
+
+    fn relative_jump(&mut self, offset: i8) -> FlagsResults {
+        let program_counter = self.registers.get_program_counter();
+        let new_program_counter = if offset >= 0 {
+            program_counter.wrapping_add(offset as u16)
+        } else {
+            program_counter.wrapping_sub((-offset) as u16)
+        };
+        self.registers.set_program_counter(new_program_counter);
+        FlagsResults::default()
+    }
+
+    fn conditional_relative_jump(&mut self, condition: Condition, offset: i8) -> FlagsResults {
+        if self.check_condition(condition) {
+            self.relative_jump(offset);
+        }
+        FlagsResults::default()
+    }
+
+    fn check_condition(&self, condition: Condition) -> bool {
+        match condition {
+            Condition::NonZero => !self.registers.get_zero(),
+            Condition::Zero => self.registers.get_zero(),
+            Condition::NonCarry => !self.registers.get_carry_flag(),
+            Condition::Carry => self.registers.get_carry_flag(),
+        }
     }
 
     fn did_half_carry_add_16(value_1: u16, value_2: u16) -> bool {

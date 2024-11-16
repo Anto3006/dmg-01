@@ -175,6 +175,10 @@ impl Registers {
         self.program_counter
     }
 
+    pub fn set_program_counter(&mut self, new_value: u16) {
+        self.program_counter = new_value;
+    }
+
     pub fn increase_program_counter(&mut self) {
         self.program_counter = self.program_counter.wrapping_add(1);
     }
