@@ -69,6 +69,9 @@ enum Instruction {
     CCF,
     RelativeJump(i8),
     CondRelativeJump(Condition, i8),
+    Stop,
+    RegisterLoad(Register8Bit, Register8Bit),
+    Halt,
     Unknown(u8),
 }
 
@@ -108,6 +111,11 @@ impl Instruction {
             Self::CondRelativeJump(condition, offset) => {
                 println!("Conditional relative jump with condition {condition:?} offset {offset}")
             }
+            Self::Stop => println!("Stop operation"),
+            Self::RegisterLoad(source, dest) => {
+                println!("Loading value in register {source:?} to register {dest:?}")
+            }
+            Self::Halt => println!("Halt operation"),
             Self::Unknown(opcode) => println!("Unknown opcode: {opcode}"),
         }
     }
@@ -186,6 +194,8 @@ impl CPU {
                 let offset: i8 = self.fetch_byte() as i8;
                 Some(Instruction::RelativeJump(offset))
             }
+            (1, 0) => Some(Instruction::Stop),
+            (0b0111,0b0110) => Some(Instruction::Halt),
             _ => None,
         }
     }
@@ -214,6 +224,11 @@ impl CPU {
                 let offset: i8 = self.fetch_byte() as i8;
                 Some(Instruction::CondRelativeJump(condition, offset))
             }
+            (0b01, _, _) => {
+                let source_register = Register8Bit::try_from(middle_octal).unwrap();
+                let dest_register = Register8Bit::try_from(low_octal).unwrap();
+                Some(Instruction(source_register,dest_register)
+            }
             _ => None,
         }
     }
@@ -241,6 +256,9 @@ impl CPU {
             Instruction::CondRelativeJump(condition, offset) => {
                 self.conditional_relative_jump(condition, offset)
             }
+            Instruction::Stop => todo!(),
+            Instruction::RegisterLoad(source, dest) => self.register_load(source,dest),
+            Instruction::Halt => todo!(),
             Instruction::Unknown(_) => FlagsResults::default(),
         };
         self.registers.set_flags(flags_results);
@@ -518,6 +536,12 @@ impl CPU {
         if self.check_condition(condition) {
             self.relative_jump(offset);
         }
+        FlagsResults::default()
+    }
+
+    fn register_load(&mut self, source: Register8Bit, dest: Register8Bit) -> FlagsResults{
+        let value = self.get_register_8_value(source);
+        self.load_register_8(dest, value);
         FlagsResults::default()
     }
 
