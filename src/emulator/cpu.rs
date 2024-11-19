@@ -48,6 +48,12 @@ impl TryFrom<u8> for Condition {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+enum ArithmeticTarget {
+    Register(Register8Bit),
+    Value(u8),
+}
+
 #[derive(Debug, Clone, Copy)]
 enum Instruction {
     NOP,
@@ -72,6 +78,8 @@ enum Instruction {
     Stop,
     RegisterLoad(Register8Bit, Register8Bit),
     Halt,
+    Add(ArithmeticTarget),
+    AddWithCarry(ArithmeticTarget),
     Unknown(u8),
 }
 
@@ -116,6 +124,10 @@ impl Instruction {
                 println!("Loading value in register {source:?} to register {dest:?}")
             }
             Self::Halt => println!("Halt operation"),
+            Self::Add(target) => println!("Adding the value in {target:?} to register A"),
+            Self::AddWithCarry(target) => {
+                println!("Adding the value in {target:?} plus the carry flag to register A")
+            }
             Self::Unknown(opcode) => println!("Unknown opcode: {opcode}"),
         }
     }
@@ -195,7 +207,15 @@ impl CPU {
                 Some(Instruction::RelativeJump(offset))
             }
             (1, 0) => Some(Instruction::Stop),
-            (0b0111,0b0110) => Some(Instruction::Halt),
+            (0b0111, 0b0110) => Some(Instruction::Halt),
+            (0b1100, 0b0110) => {
+                let value = self.fetch_byte();
+                Some(Instruction::Add(ArithmeticTarget::Value(value)))
+            }
+            (0b1100, 0b1110) => {
+                let value = self.fetch_byte();
+                Some(Instruction::AddWithCarry(ArithmeticTarget::Value(value)))
+            }
             _ => None,
         }
     }
@@ -227,7 +247,17 @@ impl CPU {
             (0b01, _, _) => {
                 let source_register = Register8Bit::try_from(middle_octal).unwrap();
                 let dest_register = Register8Bit::try_from(low_octal).unwrap();
-                Some(Instruction(source_register,dest_register)
+                Some(Instruction::RegisterLoad(source_register, dest_register))
+            }
+            (0b10, 0b000, _) => {
+                let register = Register8Bit::try_from(low_octal).unwrap();
+                Some(Instruction::Add(ArithmeticTarget::Register(register)))
+            }
+            (0b10, 0b001, _) => {
+                let register = Register8Bit::try_from(low_octal).unwrap();
+                Some(Instruction::AddWithCarry(ArithmeticTarget::Register(
+                    register,
+                )))
             }
             _ => None,
         }
@@ -257,8 +287,10 @@ impl CPU {
                 self.conditional_relative_jump(condition, offset)
             }
             Instruction::Stop => todo!(),
-            Instruction::RegisterLoad(source, dest) => self.register_load(source,dest),
+            Instruction::RegisterLoad(source, dest) => self.register_load(source, dest),
             Instruction::Halt => todo!(),
+            Instruction::Add(target) => self.add_8(target),
+            Instruction::AddWithCarry(target) => self.add_8_with_carry(target),
             Instruction::Unknown(_) => FlagsResults::default(),
         };
         self.registers.set_flags(flags_results);
@@ -539,10 +571,48 @@ impl CPU {
         FlagsResults::default()
     }
 
-    fn register_load(&mut self, source: Register8Bit, dest: Register8Bit) -> FlagsResults{
+    fn register_load(&mut self, source: Register8Bit, dest: Register8Bit) -> FlagsResults {
         let value = self.get_register_8_value(source);
         self.load_register_8(dest, value);
         FlagsResults::default()
+    }
+
+    fn add_8(&mut self, target: ArithmeticTarget) -> FlagsResults {
+        let acc_value = self.get_register_8_value(Register8Bit::A);
+        let value;
+        match target {
+            ArithmeticTarget::Register(register) => value = self.get_register_8_value(register),
+            ArithmeticTarget::Value(v) => value = v,
+        }
+        let (new_value, did_overflow) = acc_value.overflowing_add(value);
+        self.set_register_8_value(Register8Bit::A, new_value);
+        let zero = Some(new_value == 0);
+        let substraction = Some(false);
+        let half_carry = Some(Self::did_half_carry_add_8(acc_value, value));
+        let carry = Some(did_overflow);
+        FlagsResults::new(zero, substraction, half_carry, carry)
+    }
+
+    fn add_8_with_carry(&mut self, target: ArithmeticTarget) -> FlagsResults {
+        let acc_value = self.get_register_8_value(Register8Bit::A);
+        let carry_value = self.registers.get_carry_flag() as u8;
+        let value;
+        match target {
+            ArithmeticTarget::Register(register) => value = self.get_register_8_value(register),
+            ArithmeticTarget::Value(v) => value = v,
+        }
+        let (value_with_carry, did_value_overflow) = value.overflowing_add(carry_value);
+        let (new_value, did_overflow) = acc_value.overflowing_add(value_with_carry);
+        let did_overflow = did_overflow || did_value_overflow;
+        self.set_register_8_value(Register8Bit::A, new_value);
+        let zero = Some(new_value == 0);
+        let substraction = Some(false);
+        let half_carry = Some(
+            Self::did_half_carry_add_8(acc_value, new_value)
+                || Self::did_half_carry_add_8(value, carry_value),
+        );
+        let carry = Some(did_overflow);
+        FlagsResults::new(zero, substraction, half_carry, carry)
     }
 
     fn check_condition(&self, condition: Condition) -> bool {
