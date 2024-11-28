@@ -82,6 +82,9 @@ enum Instruction {
     AddWithCarry(ArithmeticTarget),
     Sub(ArithmeticTarget),
     SubWithCarry(ArithmeticTarget),
+    AND(ArithmeticTarget),
+    XOR(ArithmeticTarget),
+    OR(ArithmeticTarget),
     Unknown(u8),
 }
 
@@ -133,6 +136,15 @@ impl Instruction {
             Self::Sub(target) => println!("Substracting the value in {target:?} from register A"),
             Self::SubWithCarry(target) => {
                 println!("Substracting the value in {target:?} plus the carry flag from register A")
+            }
+            Self::AND(target) => {
+                println!("Executing bitwise AND with the value in {target:?} on the register A")
+            }
+            Self::XOR(target) => {
+                println!("Executing bitwise XOR with the value in {target:?} on the register A")
+            }
+            Self::OR(target) => {
+                println!("Executing bitwise OR with the value in {target:?} on the register A")
             }
             Self::Unknown(opcode) => println!("Unknown opcode: {opcode}"),
         }
@@ -230,6 +242,18 @@ impl CPU {
                 let value = self.fetch_byte();
                 Some(Instruction::SubWithCarry(ArithmeticTarget::Value(value)))
             }
+            (0b1110, 0b0110) => {
+                let value = self.fetch_byte();
+                Some(Instruction::AND(ArithmeticTarget::Value(value)))
+            }
+            (0b1110, 0b1110) => {
+                let value = self.fetch_byte();
+                Some(Instruction::XOR(ArithmeticTarget::Value(value)))
+            }
+            (0b1111, 0b0110) => {
+                let value = self.fetch_byte();
+                Some(Instruction::OR(ArithmeticTarget::Value(value)))
+            }
             _ => None,
         }
     }
@@ -283,6 +307,18 @@ impl CPU {
                     register,
                 )))
             }
+            (0b10, 0b100, _) => {
+                let register = Register8Bit::try_from(low_octal).unwrap();
+                Some(Instruction::AND(ArithmeticTarget::Register(register)))
+            }
+            (0b10, 0b101, _) => {
+                let register = Register8Bit::try_from(low_octal).unwrap();
+                Some(Instruction::AND(ArithmeticTarget::Register(register)))
+            }
+            (0b10, 0b110, _) => {
+                let register = Register8Bit::try_from(low_octal).unwrap();
+                Some(Instruction::AND(ArithmeticTarget::Register(register)))
+            }
             _ => None,
         }
     }
@@ -317,6 +353,9 @@ impl CPU {
             Instruction::AddWithCarry(target) => self.add_8_with_carry(target),
             Instruction::Sub(target) => self.sub_8(target),
             Instruction::SubWithCarry(target) => self.sub_8_with_carry(target),
+            Instruction::AND(target) => self.and(target),
+            Instruction::XOR(target) => self.xor(target),
+            Instruction::OR(target) => self.or(target),
             Instruction::Unknown(_) => FlagsResults::default(),
         };
         self.registers.set_flags(flags_results);
@@ -672,6 +711,52 @@ impl CPU {
         let carry = Some(did_overflow);
         FlagsResults::new(zero, substraction, half_carry, carry)
     }
+
+    fn and(&mut self, target: ArithmeticTarget) -> FlagsResults {
+        let acc_value = self.get_register_8_value(Register8Bit::A);
+        let value = match target {
+            ArithmeticTarget::Register(register) => self.get_register_8_value(register),
+            ArithmeticTarget::Value(v) => v,
+        };
+        let new_value = acc_value & value;
+        self.set_register_8_value(Register8Bit::A, new_value);
+        let zero = Some(new_value == 0);
+        let substraction = Some(false);
+        let half_carry = Some(true);
+        let carry = Some(false);
+        FlagsResults::new(zero, substraction, half_carry, carry)
+    }
+
+    fn xor(&mut self, target: ArithmeticTarget) -> FlagsResults {
+        let acc_value = self.get_register_8_value(Register8Bit::A);
+        let value = match target {
+            ArithmeticTarget::Register(register) => self.get_register_8_value(register),
+            ArithmeticTarget::Value(v) => v,
+        };
+        let new_value = acc_value ^ value;
+        self.set_register_8_value(Register8Bit::A, new_value);
+        let zero = Some(new_value == 0);
+        let substraction = Some(false);
+        let half_carry = Some(false);
+        let carry = Some(false);
+        FlagsResults::new(zero, substraction, half_carry, carry)
+    }
+
+    fn or(&mut self, target: ArithmeticTarget) -> FlagsResults {
+        let acc_value = self.get_register_8_value(Register8Bit::A);
+        let value = match target {
+            ArithmeticTarget::Register(register) => self.get_register_8_value(register),
+            ArithmeticTarget::Value(v) => v,
+        };
+        let new_value = acc_value | value;
+        self.set_register_8_value(Register8Bit::A, new_value);
+        let zero = Some(new_value == 0);
+        let substraction = Some(false);
+        let half_carry = Some(false);
+        let carry = Some(false);
+        FlagsResults::new(zero, substraction, half_carry, carry)
+    }
+
     fn check_condition(&self, condition: Condition) -> bool {
         match condition {
             Condition::NonZero => !self.registers.get_zero(),
