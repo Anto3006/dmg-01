@@ -69,7 +69,7 @@ pub struct MMU {
     unused_memory: [u8; UNUSED_MEMORY_SIZE],
     io_registers: [u8; IO_REGISTERS_SIZE],
     high_ram: [u8; HIGH_RAM_SIZE],
-    is_interrupt_enabled: bool,
+    pub is_interrupt_enabled: bool,
 }
 
 impl MMU {
@@ -109,6 +109,14 @@ impl MMU {
             MemorySection::HighRam => self.high_ram[address_in_section] = value,
             MemorySection::InterruptRegister => self.is_interrupt_enabled = value == 0,
         };
+    }
+
+    pub fn enable_interrupt(&mut self) {
+        self.is_interrupt_enabled = true;
+    }
+
+    pub fn disable_interrupt(&mut self) {
+        self.is_interrupt_enabled = false;
     }
 }
 

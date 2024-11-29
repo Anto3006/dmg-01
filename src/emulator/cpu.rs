@@ -1,7 +1,5 @@
 mod registers;
 
-use std::num::NonZero;
-
 use super::mmu::MMU;
 use register_types::{Register, Register16Bit, Register8Bit};
 use registers::{register_types, FlagsResults, Registers};
@@ -85,6 +83,13 @@ enum Instruction {
     AND(ArithmeticTarget),
     XOR(ArithmeticTarget),
     OR(ArithmeticTarget),
+    Compare(ArithmeticTarget),
+    Ret,
+    RetCondition(Condition),
+    RetInterrupt,
+    Jump(u16),
+    JumpCond(Condition, u16),
+    JumpHL,
     Unknown(u8),
 }
 
@@ -146,6 +151,21 @@ impl Instruction {
             Self::OR(target) => {
                 println!("Executing bitwise OR with the value in {target:?} on the register A")
             }
+            Self::Compare(target) => {
+                println!("Comparing the value in {target:?} with the value in register A")
+            }
+            Self::Ret => {
+                println!("Returning from a subroutine")
+            }
+            Self::RetCondition(condition) => {
+                println!("Returning from a subroutine if {condition:?} is met")
+            }
+            Self::RetInterrupt => {
+                println!("Returning from subrountine and enabling interrupts")
+            }
+            Self::Jump(address) => {}
+            Self::JumpCond(condition, address) => {}
+            Self::JumpHL => {}
             Self::Unknown(opcode) => println!("Unknown opcode: {opcode}"),
         }
     }
@@ -154,6 +174,7 @@ impl Instruction {
 struct CPU {
     mmu: MMU,
     registers: Registers,
+    interrupt_flag_prepared: bool,
 }
 
 impl CPU {
@@ -254,6 +275,18 @@ impl CPU {
                 let value = self.fetch_byte();
                 Some(Instruction::OR(ArithmeticTarget::Value(value)))
             }
+            (0b1111, 0b1110) => {
+                let value = self.fetch_byte();
+                Some(Instruction::Compare(ArithmeticTarget::Value(value)))
+            }
+            (0b1100, 0b1001) => Some(Instruction::Ret),
+            (0b1101, 0b1001) => Some(Instruction::RetInterrupt),
+            (0b1100, 0b0011) => {
+                // Little endian
+                let address = (self.fetch_byte() as u16) | ((self.fetch_byte() as u16) << 8);
+                Some(Instruction::Jump(address))
+            }
+            (0b1110, 0b1001) => Some(Instruction::JumpHL),
             _ => None,
         }
     }
@@ -319,6 +352,21 @@ impl CPU {
                 let register = Register8Bit::try_from(low_octal).unwrap();
                 Some(Instruction::AND(ArithmeticTarget::Register(register)))
             }
+            (0b10, 0b111, _) => {
+                let register = Register8Bit::try_from(low_octal).unwrap();
+                Some(Instruction::Compare(ArithmeticTarget::Register(register)))
+            }
+            (0b11, 0..4, 0b000) => {
+                let condition = Condition::try_from(middle_octal).unwrap();
+                Some(Instruction::RetCondition(condition))
+            }
+            (0b11, 0..4, 0b010) => {
+                // Little endian
+                let address = (self.fetch_byte() as u16) | ((self.fetch_byte() as u16) << 8);
+                let condition = Condition::try_from(middle_octal).unwrap();
+                Some(Instruction::JumpCond(condition, address))
+            }
+
             _ => None,
         }
     }
@@ -356,6 +404,13 @@ impl CPU {
             Instruction::AND(target) => self.and(target),
             Instruction::XOR(target) => self.xor(target),
             Instruction::OR(target) => self.or(target),
+            Instruction::Compare(target) => self.compare(target),
+            Instruction::Ret => self.return_subroutine(),
+            Instruction::RetCondition(condition) => self.conditional_return_subroutine(condition),
+            Instruction::RetInterrupt => self.return_subroutine_interrupt(),
+            Instruction::Jump(address) => self.jump(address),
+            Instruction::JumpCond(condition, address) => self.jump_conditional(condition, address),
+            Instruction::JumpHL => self.jump_hl(),
             Instruction::Unknown(_) => FlagsResults::default(),
         };
         self.registers.set_flags(flags_results);
@@ -755,6 +810,59 @@ impl CPU {
         let half_carry = Some(false);
         let carry = Some(false);
         FlagsResults::new(zero, substraction, half_carry, carry)
+    }
+
+    fn compare(&mut self, target: ArithmeticTarget) -> FlagsResults {
+        let acc_value = self.get_register_8_value(Register8Bit::A);
+        let value = match target {
+            ArithmeticTarget::Register(register) => self.get_register_8_value(register),
+            ArithmeticTarget::Value(v) => v,
+        };
+        let (result, did_overflow) = acc_value.overflowing_sub(value);
+        let zero = Some(result == 0);
+        let substraction = Some(true);
+        let half_carry = Some(Self::did_half_carry_sub_8(acc_value, value));
+        let carry = Some(did_overflow);
+        FlagsResults::new(zero, substraction, half_carry, carry)
+    }
+
+    fn return_subroutine(&mut self) -> FlagsResults {
+        let stack_pointer = self.registers.get_16_bit_register(Register16Bit::SP);
+        self.increase_register(Register::Reg16(Register16Bit::SP));
+        self.increase_register(Register::Reg16(Register16Bit::SP));
+        self.registers.set_program_counter(stack_pointer);
+        FlagsResults::default()
+    }
+
+    fn conditional_return_subroutine(&mut self, condition: Condition) -> FlagsResults {
+        if self.check_condition(condition) {
+            self.return_subroutine()
+        } else {
+            FlagsResults::default()
+        }
+    }
+
+    fn jump(&mut self, address: u16) -> FlagsResults {
+        self.registers.set_program_counter(address);
+        FlagsResults::default()
+    }
+
+    fn jump_conditional(&mut self, condition: Condition, address: u16) -> FlagsResults {
+        if self.check_condition(condition) {
+            self.jump(address)
+        } else {
+            FlagsResults::default()
+        }
+    }
+
+    fn jump_hl(&mut self) -> FlagsResults {
+        let address = self.registers.get_16_bit_register(Register16Bit::HL);
+        self.jump(address)
+    }
+
+    fn return_subroutine_interrupt(&mut self) -> FlagsResults {
+        self.mmu.enable_interrupt();
+        self.return_subroutine()
     }
 
     fn check_condition(&self, condition: Condition) -> bool {
