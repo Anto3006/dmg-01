@@ -54,42 +54,42 @@ enum ArithmeticTarget {
 
 #[derive(Debug, Clone, Copy)]
 enum Instruction {
-    NOP,
-    Load16Bit(Register16Bit, u16),
-    StoreInMemory(MemoryAddress),  //Stores from register A
-    LoadFromMemory(MemoryAddress), // Load to register A
-    StoreStackPointer(u16),
-    Increase(Register),
-    Decrease(Register),
-    Add16(Register16Bit), // Adds 16 bit register to HL register
-    Load8Bit(Register8Bit, u8),
-    RLCA,
-    RRCA,
-    RLA,
-    RRA,
-    DAA,
-    CPL,
-    SCF,
-    CCF,
-    RelativeJump(i8),
-    CondRelativeJump(Condition, i8),
-    Stop,
-    RegisterLoad(Register8Bit, Register8Bit),
-    Halt,
-    Add(ArithmeticTarget), //Arithmetic operations with 8 bits have as target register A
-    AddWithCarry(ArithmeticTarget),
-    Sub(ArithmeticTarget),
-    SubWithCarry(ArithmeticTarget),
-    AND(ArithmeticTarget),
-    XOR(ArithmeticTarget),
-    OR(ArithmeticTarget),
-    Compare(ArithmeticTarget),
-    Ret,
-    RetCondition(Condition),
-    RetInterrupt,
-    Jump(u16),
-    JumpCond(Condition, u16),
-    JumpHL,
+    NOP,                                      //nop
+    Load16Bit(Register16Bit, u16),            //ld r16, imm16
+    StoreInMemory(MemoryAddress),             //ld [r16mem], a. Stores from register A
+    LoadFromMemory(MemoryAddress),            //ld a, [r16mem]. Load to register A
+    StoreStackPointer(u16),                   //ld [imm16], sp
+    Increase(Register),                       //inc r16 | inc r8
+    Decrease(Register),                       //dec r16 | dec r8
+    Add16(Register16Bit),                     //add hl, r16. Adds 16 bit register to HL register
+    Load8Bit(Register8Bit, u8),               //ld r8, imm8
+    RLCA,                                     //rlca
+    RRCA,                                     //rrca
+    RLA,                                      //rla
+    RRA,                                      //rra
+    DAA,                                      //daa
+    CPL,                                      //cpl
+    SCF,                                      //scf
+    CCF,                                      //ccf
+    RelativeJump(i8),                         //jr imm8
+    CondRelativeJump(Condition, i8),          //jr cond, imm8
+    Stop,                                     //stop
+    RegisterLoad(Register8Bit, Register8Bit), //ld r8, r8
+    Halt,                                     //halt
+    Add(ArithmeticTarget), //add a, r8 | add a, imm8. Arithmetic operations with 8 bits have as target register A
+    AddWithCarry(ArithmeticTarget), //adc a, r8 | adc a, imm8
+    Sub(ArithmeticTarget), //sub a, r8 | sub a, imm8
+    SubWithCarry(ArithmeticTarget), //sbc a, r8 | sbc a, r8
+    AND(ArithmeticTarget), //and a, r8 | and a, imm8
+    XOR(ArithmeticTarget), //xor a, r8 | xor a, imm8
+    OR(ArithmeticTarget),  //or a, r8 | or a, imm8
+    Compare(ArithmeticTarget), //cp a, r8 | cp a, imm8
+    Ret,                   //ret
+    RetCondition(Condition), //ret cond
+    RetInterrupt,          //reti
+    Jump(u16),             //jp imm16
+    JumpCond(Condition, u16), //jp cond, imm16
+    JumpHL,                //jp hl
     Unknown(u8),
 }
 
