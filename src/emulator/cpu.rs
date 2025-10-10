@@ -76,7 +76,7 @@ enum Instruction {
     Stop,
     RegisterLoad(Register8Bit, Register8Bit),
     Halt,
-    Add(ArithmeticTarget),
+    Add(ArithmeticTarget), //Arithmetic operations with 8 bits have as target register A
     AddWithCarry(ArithmeticTarget),
     Sub(ArithmeticTarget),
     SubWithCarry(ArithmeticTarget),
@@ -163,9 +163,15 @@ impl Instruction {
             Self::RetInterrupt => {
                 println!("Returning from subrountine and enabling interrupts")
             }
-            Self::Jump(address) => {}
-            Self::JumpCond(condition, address) => {}
-            Self::JumpHL => {}
+            Self::Jump(address) => {
+                println!("Jumping to address {address:#x}")
+            }
+            Self::JumpCond(condition, address) => {
+                println!("Jump to address {address:#x} if condition {condition:?} is met")
+            }
+            Self::JumpHL => {
+                println!("Jump to address in register HL")
+            }
             Self::Unknown(opcode) => println!("Unknown opcode: {opcode}"),
         }
     }
@@ -346,11 +352,11 @@ impl CPU {
             }
             (0b10, 0b101, _) => {
                 let register = Register8Bit::try_from(low_octal).unwrap();
-                Some(Instruction::AND(ArithmeticTarget::Register(register)))
+                Some(Instruction::XOR(ArithmeticTarget::Register(register)))
             }
             (0b10, 0b110, _) => {
                 let register = Register8Bit::try_from(low_octal).unwrap();
-                Some(Instruction::AND(ArithmeticTarget::Register(register)))
+                Some(Instruction::OR(ArithmeticTarget::Register(register)))
             }
             (0b10, 0b111, _) => {
                 let register = Register8Bit::try_from(low_octal).unwrap();
