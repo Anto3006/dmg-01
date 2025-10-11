@@ -90,6 +90,9 @@ enum Instruction {
     Jump(u16),             //jp imm16
     JumpCond(Condition, u16), //jp cond, imm16
     JumpHL,                //jp hl
+    CallCondition(Condition, u16), //call cond, imm16
+    Call(u16),             //call imm16
+    Restart(u8),           //rst tgt3
     Unknown(u8),
 }
 
@@ -171,6 +174,15 @@ impl Instruction {
             }
             Self::JumpHL => {
                 println!("Jump to address in register HL")
+            }
+            Self::CallCondition(condition, addr) => {
+                println!("Call to address {addr:#x} if condition {condition:?} is met")
+            }
+            Self::Call(addr) => {
+                println!("Call to address {addr:#x}")
+            }
+            Self::Restart(target) => {
+                println!("Restart to address defined by {target:#x}")
             }
             Self::Unknown(opcode) => println!("Unknown opcode: {opcode}"),
         }
@@ -293,6 +305,11 @@ impl CPU {
                 Some(Instruction::Jump(address))
             }
             (0b1110, 0b1001) => Some(Instruction::JumpHL),
+            (0b1100, 0b1101) => {
+                // Little endian
+                let new_address = (self.fetch_byte() as u16) | ((self.fetch_byte() as u16) << 8);
+                Some(Instruction::Call(new_address))
+            }
             _ => None,
         }
     }
@@ -372,6 +389,13 @@ impl CPU {
                 let condition = Condition::try_from(middle_octal).unwrap();
                 Some(Instruction::JumpCond(condition, address))
             }
+            (0b11, 0..4, 0b100) => {
+                // Little endian
+                let new_address = (self.fetch_byte() as u16) | ((self.fetch_byte() as u16) << 8);
+                let condition = Condition::try_from(middle_octal).unwrap();
+                Some(Instruction::CallCondition(condition, new_address))
+            }
+            (0b11, _, 0b111) => Some(Instruction::Restart(middle_octal)),
 
             _ => None,
         }
@@ -417,6 +441,11 @@ impl CPU {
             Instruction::Jump(address) => self.jump(address),
             Instruction::JumpCond(condition, address) => self.jump_conditional(condition, address),
             Instruction::JumpHL => self.jump_hl(),
+            Instruction::Call(address) => self.call(address),
+            Instruction::CallCondition(condition, address) => {
+                self.conditional_call(condition, address)
+            }
+            Instruction::Restart(target) => self.restart(target),
             Instruction::Unknown(_) => FlagsResults::default(),
         };
         self.registers.set_flags(flags_results);
@@ -869,6 +898,45 @@ impl CPU {
     fn return_subroutine_interrupt(&mut self) -> FlagsResults {
         self.mmu.enable_interrupt();
         self.return_subroutine()
+    }
+
+    fn call(&mut self, address: u16) -> FlagsResults {
+        let program_counter = self.registers.get_program_counter();
+        let msb_pc = (program_counter & 0xFF00) >> 8;
+        let lsb_pc = program_counter & 0x00FF;
+
+        let mut stack_pointer = self.registers.get_16_bit_register(Register16Bit::SP);
+        stack_pointer = stack_pointer.wrapping_sub(1);
+        self.registers
+            .set_16_bit_register(Register16Bit::SP, stack_pointer);
+        self.mmu.write_byte(
+            self.registers.get_16_bit_register(Register16Bit::SP),
+            msb_pc as u8,
+        );
+
+        stack_pointer = stack_pointer.wrapping_sub(1);
+        self.registers
+            .set_16_bit_register(Register16Bit::SP, stack_pointer);
+        self.mmu.write_byte(
+            self.registers.get_16_bit_register(Register16Bit::SP),
+            lsb_pc as u8,
+        );
+
+        self.registers.set_program_counter(address);
+        FlagsResults::default()
+    }
+
+    fn conditional_call(&mut self, condition: Condition, address: u16) -> FlagsResults {
+        if self.check_condition(condition) {
+            self.call(address)
+        } else {
+            FlagsResults::default()
+        }
+    }
+
+    fn restart(&mut self, target: u8) -> FlagsResults {
+        let address = target as u16;
+        self.call(address)
     }
 
     fn check_condition(&self, condition: Condition) -> bool {
