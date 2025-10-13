@@ -175,6 +175,10 @@ impl Registers {
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
     }
 
+    pub fn increase_stack_pointer(&mut self) {
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+    }
+
     pub fn get_program_counter(&self) -> u16 {
         self.program_counter
     }

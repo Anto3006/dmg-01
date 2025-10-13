@@ -26,6 +26,27 @@ impl TryFrom<u8> for MemoryAddress {
 }
 
 #[derive(Debug, Clone, Copy)]
+enum StackRegister {
+    BC,
+    DE,
+    HL,
+    AF,
+}
+
+impl TryFrom<u8> for StackRegister {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::BC),
+            1 => Ok(Self::DE),
+            2 => Ok(Self::HL),
+            3 => Ok(Self::AF),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 enum Condition {
     Zero,
     NonZero,
@@ -93,6 +114,8 @@ enum Instruction {
     CallCondition(Condition, u16), //call cond, imm16
     Call(u16),             //call imm16
     Restart(u8),           //rst tgt3
+    Pop(StackRegister),    //pop r16stk
+    Push(StackRegister),   //push r16stk
     Unknown(u8),
 }
 
@@ -183,6 +206,12 @@ impl Instruction {
             }
             Self::Restart(target) => {
                 println!("Restart to address defined by {target:#x}")
+            }
+            Self::Pop(register) => {
+                println!("Pop data from stack to register {register:?}")
+            }
+            Self::Push(register) => {
+                println!("Push data to the stack from register {register:?}")
             }
             Self::Unknown(opcode) => println!("Unknown opcode: {opcode}"),
         }
@@ -309,6 +338,14 @@ impl CPU {
                 // Little endian
                 let new_address = (self.fetch_byte() as u16) | ((self.fetch_byte() as u16) << 8);
                 Some(Instruction::Call(new_address))
+            }
+            (0b1100..0b1111, 0b0001) => {
+                let register = StackRegister::try_from(upper_nibble & 0x0F).unwrap();
+                Some(Instruction::Pop(register))
+            }
+            (0b1100..0b1111, 0b0101) => {
+                let register = StackRegister::try_from(upper_nibble & 0x0F).unwrap();
+                Some(Instruction::Push(register))
             }
             _ => None,
         }
@@ -446,6 +483,8 @@ impl CPU {
                 self.conditional_call(condition, address)
             }
             Instruction::Restart(target) => self.restart(target),
+            Instruction::Pop(register) => self.pop_stack(register),
+            Instruction::Push(register) => self.push_stack(register),
             Instruction::Unknown(_) => FlagsResults::default(),
         };
         self.registers.set_flags(flags_results);
@@ -863,8 +902,8 @@ impl CPU {
 
     fn return_subroutine(&mut self) -> FlagsResults {
         let stack_pointer = self.registers.get_16_bit_register(Register16Bit::SP);
-        self.increase_register(Register::Reg16(Register16Bit::SP));
-        self.increase_register(Register::Reg16(Register16Bit::SP));
+        self.registers.increase_stack_pointer();
+        self.registers.increase_stack_pointer();
         self.registers.set_program_counter(stack_pointer);
         FlagsResults::default()
     }
@@ -905,18 +944,13 @@ impl CPU {
         let msb_pc = (program_counter & 0xFF00) >> 8;
         let lsb_pc = program_counter & 0x00FF;
 
-        let mut stack_pointer = self.registers.get_16_bit_register(Register16Bit::SP);
-        stack_pointer = stack_pointer.wrapping_sub(1);
-        self.registers
-            .set_16_bit_register(Register16Bit::SP, stack_pointer);
+        self.registers.decrease_stack_pointer();
         self.mmu.write_byte(
             self.registers.get_16_bit_register(Register16Bit::SP),
             msb_pc as u8,
         );
 
-        stack_pointer = stack_pointer.wrapping_sub(1);
-        self.registers
-            .set_16_bit_register(Register16Bit::SP, stack_pointer);
+        self.registers.decrease_stack_pointer();
         self.mmu.write_byte(
             self.registers.get_16_bit_register(Register16Bit::SP),
             lsb_pc as u8,
@@ -937,6 +971,54 @@ impl CPU {
     fn restart(&mut self, target: u8) -> FlagsResults {
         let address = target as u16;
         self.call(address)
+    }
+
+    fn pop_stack(&mut self, register: StackRegister) -> FlagsResults {
+        let lsb = self
+            .mmu
+            .read_byte(self.registers.get_16_bit_register(Register16Bit::SP))
+            as u16;
+        self.registers.increase_stack_pointer();
+        let msb = self
+            .mmu
+            .read_byte(self.registers.get_16_bit_register(Register16Bit::SP))
+            as u16;
+        self.registers.increase_stack_pointer();
+        let read_value = (msb << 8) | lsb;
+        match register {
+            StackRegister::BC => self
+                .registers
+                .set_16_bit_register(Register16Bit::BC, read_value),
+            StackRegister::DE => self
+                .registers
+                .set_16_bit_register(Register16Bit::DE, read_value),
+            StackRegister::HL => self
+                .registers
+                .set_16_bit_register(Register16Bit::HL, read_value),
+            StackRegister::AF => self
+                .registers
+                .set_16_bit_register(Register16Bit::AF, read_value),
+        }
+        FlagsResults::default()
+    }
+
+    fn push_stack(&mut self, register: StackRegister) -> FlagsResults {
+        let value_read = match register {
+            StackRegister::BC => self.registers.get_16_bit_register(Register16Bit::BC),
+            StackRegister::DE => self.registers.get_16_bit_register(Register16Bit::DE),
+            StackRegister::HL => self.registers.get_16_bit_register(Register16Bit::HL),
+            StackRegister::AF => self.registers.get_16_bit_register(Register16Bit::AF),
+        };
+
+        let lsb = (value_read & 0x00FF) as u8;
+        let msb = ((value_read & 0xFF00) >> 8) as u8;
+        self.registers.decrease_stack_pointer();
+        self.mmu
+            .write_byte(self.registers.get_16_bit_register(Register16Bit::SP), msb);
+        self.registers.decrease_stack_pointer();
+        self.mmu
+            .write_byte(self.registers.get_16_bit_register(Register16Bit::SP), lsb);
+        FlagsResults::default()
     }
 
     fn check_condition(&self, condition: Condition) -> bool {
