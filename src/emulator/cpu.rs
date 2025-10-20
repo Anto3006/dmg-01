@@ -73,6 +73,13 @@ enum ArithmeticTarget {
     Value(u8),
 }
 
+#[derive(Debug, Copy, Clone)]
+enum AccMemoryTarget {
+    RegC,
+    Imm8(u8),
+    Imm16(u16),
+}
+
 #[derive(Debug, Clone, Copy)]
 enum Instruction {
     NOP,                                      //nop
@@ -116,6 +123,8 @@ enum Instruction {
     Restart(u8),           //rst tgt3
     Pop(StackRegister),    //pop r16stk
     Push(StackRegister),   //push r16stk
+    LoadToMemoryFromAcc(AccMemoryTarget), //ldh [c],a | ldh [imm8], a | ld [imm16], a
+    LoadToAccFromMemory(AccMemoryTarget), //ldh [c],a | ldh [imm8], a | ld [imm16], a
     Unknown(u8),
 }
 
@@ -212,6 +221,12 @@ impl Instruction {
             }
             Self::Push(register) => {
                 println!("Push data to the stack from register {register:?}")
+            }
+            Self::LoadToMemoryFromAcc(memory_target) => {
+                println!("Loading to {memory_target:?} from accumulator")
+            }
+            Self::LoadToAccFromMemory(memory_target) => {
+                println!("Loading to accumulator from {memory_target:?}")
             }
             Self::Unknown(opcode) => println!("Unknown opcode: {opcode}"),
         }
@@ -346,6 +361,32 @@ impl CPU {
             (0b1100..0b1111, 0b0101) => {
                 let register = StackRegister::try_from(upper_nibble & 0x0F).unwrap();
                 Some(Instruction::Push(register))
+            }
+            (0b1110, 0b0010) => Some(Instruction::LoadToMemoryFromAcc(AccMemoryTarget::RegC)),
+            (0b1110, 0b0000) => {
+                let address_lsb = self.fetch_byte();
+                Some(Instruction::LoadToMemoryFromAcc(AccMemoryTarget::Imm8(
+                    address_lsb,
+                )))
+            }
+            (0b1110, 0b1010) => {
+                let address = (self.fetch_byte() as u16) | ((self.fetch_byte() as u16) << 8);
+                Some(Instruction::LoadToMemoryFromAcc(AccMemoryTarget::Imm16(
+                    address,
+                )))
+            }
+            (0b1111, 0b0010) => Some(Instruction::LoadToAccFromMemory(AccMemoryTarget::RegC)),
+            (0b1111, 0b0000) => {
+                let address_lsb = self.fetch_byte();
+                Some(Instruction::LoadToAccFromMemory(AccMemoryTarget::Imm8(
+                    address_lsb,
+                )))
+            }
+            (0b1111, 0b1010) => {
+                let address = (self.fetch_byte() as u16) | ((self.fetch_byte() as u16) << 8);
+                Some(Instruction::LoadToAccFromMemory(AccMemoryTarget::Imm16(
+                    address,
+                )))
             }
             _ => None,
         }
@@ -485,6 +526,12 @@ impl CPU {
             Instruction::Restart(target) => self.restart(target),
             Instruction::Pop(register) => self.pop_stack(register),
             Instruction::Push(register) => self.push_stack(register),
+            Instruction::LoadToMemoryFromAcc(acc_memory_target) => {
+                self.load_to_mem_from_acc(acc_memory_target)
+            }
+            Instruction::LoadToAccFromMemory(acc_memory_target) => {
+                self.load_to_acc_from_mem(acc_memory_target)
+            }
             Instruction::Unknown(_) => FlagsResults::default(),
         };
         self.registers.set_flags(flags_results);
@@ -1018,6 +1065,32 @@ impl CPU {
         self.registers.decrease_stack_pointer();
         self.mmu
             .write_byte(self.registers.get_16_bit_register(Register16Bit::SP), lsb);
+        FlagsResults::default()
+    }
+
+    fn load_to_mem_from_acc(&mut self, acc_memory_target: AccMemoryTarget) -> FlagsResults {
+        let address = match acc_memory_target {
+            AccMemoryTarget::RegC => {
+                (0xFF as u16) | (self.get_register_8_value(Register8Bit::C) as u16)
+            }
+            AccMemoryTarget::Imm8(lsb) => (0xFF as u16) | (lsb as u16),
+            AccMemoryTarget::Imm16(address) => address,
+        };
+        self.mmu
+            .write_byte(address, self.get_register_8_value(Register8Bit::A));
+        FlagsResults::default()
+    }
+
+    fn load_to_acc_from_mem(&mut self, acc_memory_target: AccMemoryTarget) -> FlagsResults {
+        let address = match acc_memory_target {
+            AccMemoryTarget::RegC => {
+                (0xFF as u16) | (self.get_register_8_value(Register8Bit::C) as u16)
+            }
+            AccMemoryTarget::Imm8(lsb) => (0xFF as u16) | (lsb as u16),
+            AccMemoryTarget::Imm16(address) => address,
+        };
+        let data_read = self.mmu.read_byte(address);
+        self.set_register_8_value(Register8Bit::A, data_read);
         FlagsResults::default()
     }
 
