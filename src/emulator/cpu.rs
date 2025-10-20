@@ -125,6 +125,9 @@ enum Instruction {
     Push(StackRegister),   //push r16stk
     LoadToMemoryFromAcc(AccMemoryTarget), //ldh [c],a | ldh [imm8], a | ld [imm16], a
     LoadToAccFromMemory(AccMemoryTarget), //ldh [c],a | ldh [imm8], a | ld [imm16], a
+    AddToSP(u8),           //add sp, imm8
+    LoadSPAndOffsetToHL(u8), //ld hl, sp + imm8
+    LoadHLToSP,            //ld sp, hl
     Unknown(u8),
 }
 
@@ -227,6 +230,15 @@ impl Instruction {
             }
             Self::LoadToAccFromMemory(memory_target) => {
                 println!("Loading to accumulator from {memory_target:?}")
+            }
+            Self::AddToSP(value) => {
+                println!("Adding {value:#x} to SP")
+            }
+            Self::LoadSPAndOffsetToHL(offset) => {
+                println!("Loading SP + {offset:#x} to HL")
+            }
+            Self::LoadHLToSP => {
+                println!("Loading register HL to SP")
             }
             Self::Unknown(opcode) => println!("Unknown opcode: {opcode}"),
         }
@@ -388,6 +400,15 @@ impl CPU {
                     address,
                 )))
             }
+            (0b1110, 0b1000) => {
+                let value = self.fetch_byte();
+                Some(Instruction::AddToSP(value))
+            }
+            (0b1111, 0b1000) => {
+                let offset = self.fetch_byte();
+                Some(Instruction::LoadSPAndOffsetToHL(offset))
+            }
+            (0b1111, 0b1001) => Some(Instruction::LoadHLToSP),
             _ => None,
         }
     }
@@ -532,6 +553,9 @@ impl CPU {
             Instruction::LoadToAccFromMemory(acc_memory_target) => {
                 self.load_to_acc_from_mem(acc_memory_target)
             }
+            Instruction::AddToSP(value) => self.add_to_sp(value),
+            Instruction::LoadSPAndOffsetToHL(offset) => self.load_sp_and_offset_to_hl(offset),
+            Instruction::LoadHLToSP => self.load_hl_to_sp(),
             Instruction::Unknown(_) => FlagsResults::default(),
         };
         self.registers.set_flags(flags_results);
@@ -1091,6 +1115,36 @@ impl CPU {
         };
         let data_read = self.mmu.read_byte(address);
         self.set_register_8_value(Register8Bit::A, data_read);
+        FlagsResults::default()
+    }
+
+    fn add_to_sp(&mut self, value: u8) -> FlagsResults {
+        let sp = self.registers.get_16_bit_register(Register16Bit::SP);
+        let (new_sp_value, did_overflow) = sp.overflowing_add(value as u16);
+        self.registers
+            .set_16_bit_register(Register16Bit::SP, new_sp_value);
+        let zero = Some(false);
+        let substraction = Some(false);
+        let half_carry = Some(Self::did_half_carry_add_16(sp, value as u16));
+        let carry = Some(did_overflow);
+        FlagsResults::new(zero, substraction, half_carry, carry)
+    }
+
+    fn load_sp_and_offset_to_hl(&mut self, offset: u8) -> FlagsResults {
+        let sp = self.registers.get_16_bit_register(Register16Bit::SP);
+        let (new_hl_value, did_overflow) = sp.overflowing_add(offset as u16);
+        self.registers
+            .set_16_bit_register(Register16Bit::HL, new_hl_value);
+        let zero = Some(false);
+        let substraction = Some(false);
+        let half_carry = Some(Self::did_half_carry_add_16(sp, offset as u16));
+        let carry = Some(did_overflow);
+        FlagsResults::new(zero, substraction, half_carry, carry)
+    }
+
+    fn load_hl_to_sp(&mut self) -> FlagsResults {
+        let hl = self.registers.get_16_bit_register(Register16Bit::HL);
+        self.registers.set_16_bit_register(Register16Bit::SP, hl);
         FlagsResults::default()
     }
 
